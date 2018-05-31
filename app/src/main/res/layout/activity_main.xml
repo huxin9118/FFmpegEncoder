@@ -1,0 +1,295 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context=".activity.MainActivity" >
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:layout_marginLeft="15dp"
+        android:layout_marginBottom="2dp"
+        android:text="YUV输入路径："
+        android:background="@color/listItem_white"/>
+    <requestFocus/>
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="10dp"
+        android:layout_marginRight="10dp"
+        android:background="@drawable/shape_url">
+
+        <LinearLayout
+            android:id="@+id/ly_input"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:paddingLeft="15dp"
+            android:paddingBottom="5dp">
+            <TextView
+                android:id="@+id/input_url"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:minHeight="50dp"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:hint="请点击选择YUV路径"
+                android:textSize="16sp"/>
+            <View
+                android:layout_width="0.5dp"
+                android:layout_height="match_parent"
+                android:background="@color/listLine"/>
+            <RelativeLayout
+                android:id="@+id/ly_decode"
+                android:layout_width="50dp"
+                android:layout_height="match_parent"
+                android:background="@color/listBackgrount_white">
+                <ImageView
+                    android:id="@+id/btn_decode"
+                    android:layout_width="30dp"
+                    android:layout_height="20dp"
+                    android:layout_centerInParent="true"
+                    android:src="@drawable/ic_export_send_gray"/>
+            </RelativeLayout>
+        </LinearLayout>
+        <ProgressBar
+            android:id="@+id/progressBar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="6dp"
+            android:layout_alignBottom="@id/ly_input"
+            android:max="100"
+            android:progress="0"
+            android:progressDrawable="@drawable/progressbar"
+            android:visibility="visible"/>
+    </RelativeLayout>
+
+    <RadioGroup
+        android:id="@+id/encode_method"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="15dp"
+        android:layout_marginRight="10dp"
+        android:layout_marginTop="5dp"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="编码方式:"
+            android:textSize="12sp" />
+
+        <RadioButton
+            android:id="@+id/ffmpeg"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            android:text="软编码"
+            android:textSize="12sp" />
+
+        <RadioButton
+            android:id="@+id/mediacodec"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="硬编码"
+            android:textSize="12sp" />
+    </RadioGroup>
+
+    <RadioGroup
+        android:id="@+id/yuv_pixel_format"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="15dp"
+        android:layout_marginRight="10dp"
+        android:layout_marginTop="5dp"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="YUV像素格式:"
+            android:textSize="12sp" />
+
+        <RadioButton
+            android:id="@+id/i420"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            android:text="I420"
+            android:textSize="12sp" />
+
+        <RadioButton
+            android:id="@+id/nv12"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="NV12"
+            android:textSize="12sp" />
+
+        <RadioButton
+            android:id="@+id/nv21"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="NV21"
+            android:textSize="12sp" />
+    </RadioGroup>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="15dp"
+        android:layout_marginRight="10dp"
+        android:layout_marginTop="5dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView
+            android:layout_width="40dp"
+            android:layout_height="wrap_content"
+            android:text="帧率:"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="88dp"
+            android:layout_height="wrap_content">
+            <TextView
+                android:id="@+id/framerate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="10dp"
+                android:layout_marginRight="5dp"
+                android:text="0"
+                android:textSize="14sp"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginRight="5dp"
+                android:text="fps"
+                android:textSize="12sp"/>
+        </LinearLayout>
+        <SeekBar
+            android:id="@+id/framerateBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="15dp"
+        android:layout_marginRight="10dp"
+        android:layout_marginTop="5dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView
+            android:layout_width="40dp"
+            android:layout_height="wrap_content"
+            android:text="比特率:"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="88dp"
+            android:layout_height="wrap_content">
+            <TextView
+                android:id="@+id/bitrate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="10dp"
+                android:layout_marginRight="5dp"
+                android:text="0"
+                android:textSize="14sp"
+                android:textStyle="bold"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginRight="5dp"
+                android:text="kbps"
+                android:textSize="12sp"
+                android:singleLine="true"
+                android:ellipsize="end"/>
+        </LinearLayout>
+        <SeekBar
+            android:id="@+id/bitrateBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:id="@+id/ly_h264"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dp"
+            android:layout_marginRight="10dp"
+            android:layout_marginTop="5dp"
+            android:background="@drawable/shape_url"
+            android:gravity="center_vertical"
+            android:orientation="vertical"
+            android:paddingLeft="15dp"
+            android:paddingRight="15dp">
+
+            <EditText
+                android:id="@+id/output_url"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@null"
+                android:gravity="center_vertical"
+                android:hint="h264输出路径："
+                android:inputType="textMultiLine"
+                android:minHeight="45dp"
+                android:textSize="16sp" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="0.5dp"
+                android:background="@color/listLine" />
+
+            <EditText
+                android:id="@+id/width"
+                android:layout_width="match_parent"
+                android:layout_height="45dp"
+                android:background="@null"
+                android:maxLines="1"
+                android:gravity="center_vertical"
+                android:hint="宽度:"
+                android:textSize="16sp" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="0.5dp"
+                android:background="@color/listLine" />
+
+            <EditText
+                android:id="@+id/height"
+                android:layout_width="match_parent"
+                android:layout_height="45dp"
+                android:background="@null"
+                android:maxLines="1"
+                android:gravity="center_vertical"
+                android:hint="高度:"
+                android:textSize="16sp" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="0.5dp"
+                android:background="@color/listLine" />
+
+            <TextView
+                android:id="@+id/frameCount"
+                android:layout_width="match_parent"
+                android:layout_height="45dp"
+                android:maxLines="1"
+                android:gravity="center_vertical"
+                android:hint="帧数:"
+                android:textSize="16sp" />
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>
