@@ -2,9 +2,9 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "libavutil/opt.h"
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
+#include "libswscale/swscale.h"
 #include "libavutil/log.h"
 
 #include "mediacodec/mediacodec.h"
@@ -47,11 +47,12 @@ JNIEXPORT jint JNICALL Java_com_example_ffmpegencoder_activity_MainActivity_enco
     AVCodecContext* pCodecCtx;
     AVCodec* pCodec;
     AVPacket pkt;
-    uint8_t* picture_buf;
+    uint8_t* pFrame_buf;
     AVFrame* pFrame;
     int picture_size;
     int y_size;
     int framecnt=0;
+    struct SwsContext *img_convert_ctx;
 
     char input_str[256]={0};
     char output_str[256]={0};
@@ -133,11 +134,11 @@ JNIEXPORT jint JNICALL Java_com_example_ffmpegencoder_activity_MainActivity_enco
         return -1;
     }
 
+    picture_size = avpicture_get_size(pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height);
 
     pFrame = av_frame_alloc();
-    picture_size = avpicture_get_size(pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height);
-    picture_buf = (uint8_t *)av_malloc(picture_size);
-    avpicture_fill((AVPicture *)pFrame, picture_buf, pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height);
+    pFrame_buf = (uint8_t *)av_malloc(picture_size);
+    avpicture_fill((AVPicture *)pFrame, pFrame_buf, pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height);
 	pFrame->width = pCodecCtx->width;
 	pFrame->height =  pCodecCtx->height;
 	
@@ -149,6 +150,7 @@ JNIEXPORT jint JNICALL Java_com_example_ffmpegencoder_activity_MainActivity_enco
 	}else if(pixel_type == 6){
 		yuv_pixel_format = NV21;
 	}
+
 	MediaCodecEncoder* mediacodec_encoder = mediacodec_encoder_alloc(1,width,height,framerate,bitrate*1000,300,yuv_pixel_format);
 	mediacodec_encoder_open(mediacodec_encoder);
 
@@ -160,12 +162,12 @@ JNIEXPORT jint JNICALL Java_com_example_ffmpegencoder_activity_MainActivity_enco
     y_size = pCodecCtx->width * pCodecCtx->height;
 
     //Read raw YUV data
-    while(fread(picture_buf, 1, y_size*3/2, fp_yuv) > 0 && encode_cancel == 0){
-        pFrame->data[0] = picture_buf;              // Y
-        pFrame->data[1] = picture_buf+ y_size;      // U
-        pFrame->data[2] = picture_buf+ y_size*5/4;  // V
-        //PTS
-        pFrame->pts=framecnt;
+    while(fread(pFrame_buf, 1, y_size*3/2, fp_yuv) > 0 && encode_cancel == 0){
+        pFrame->data[0] = pFrame_buf;              // Y
+        pFrame->data[1] = pFrame_buf+ y_size;      // U
+        pFrame->data[2] = pFrame_buf+ y_size*5/4;  // V
+        pFrame->pts=framecnt;                       //PTS
+
         int got_picture=0;
         //Encode
 		if(codec_type == 0){
@@ -254,11 +256,11 @@ JNIEXPORT jint JNICALL Java_com_example_ffmpegencoder_activity_MainActivity_enco
     if (video_st){
         avcodec_close(video_st->codec);
         av_free(pFrame);
-        av_free(picture_buf);
+        av_free(pFrame_buf);
     }
     avio_close(pFormatCtx->pb);
     avformat_free_context(pFormatCtx);
-
+	sws_freeContext(img_convert_ctx);
     fclose(fp_yuv);
     encode_cancel = 0;
 	
