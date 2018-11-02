@@ -53,6 +53,30 @@ int mediacodec_encoder_free(MediaCodecEncoder* encoder) {
 	}
 }
 
+int mediacodec_encoder_flush(MediaCodecEncoder* encoder) {
+	if(encoder){
+		if (encoder->DEBUG) {
+			MediaCodec_LOGI("[flush]");
+		}
+		
+		int status;
+		
+		status = AMediaCodec_flush(encoder->codec);
+		if(status){
+			if (encoder->DEBUG) {
+				MediaCodec_LOGE("[flush]AMediaCodec_flush error");
+			}
+		}
+		return status;
+	}
+	else{
+		if (encoder->DEBUG) {
+			MediaCodec_LOGE("[flush]ERROR_SDK_ENCODER_IS_NULL");
+		}
+		return -1;
+	}
+}
+
 int mediacodec_encoder_open(MediaCodecEncoder* encoder) {
 	if(encoder){
 		if (encoder->DEBUG) {
@@ -173,18 +197,18 @@ int mediacodec_encoder_open(MediaCodecEncoder* encoder) {
 		AMediaFormat_setInt32(mediaFormat, AMEDIAFORMAT_KEY_WIDTH, encoder->width);
 		AMediaFormat_setInt32(mediaFormat, AMEDIAFORMAT_KEY_HEIGHT, encoder->height);
 		AMediaFormat_setInt32(mediaFormat, AMEDIAFORMAT_KEY_BIT_RATE, encoder->bit_rate);
-		// AMediaFormat_setInt32(mediaFormat, "max-bitrate", encoder->bit_rate * 2);
-		// AMediaFormat_setInt32(mediaFormat, "bitrate-mode", 1);//BITRATE_MODE_VBR
+		AMediaFormat_setInt32(mediaFormat, "max-bitrate", encoder->bit_rate * 2);
+		AMediaFormat_setInt32(mediaFormat, "bitrate-mode", 2);//BITRATE_MODE_CBR
 		AMediaFormat_setInt32(mediaFormat, AMEDIAFORMAT_KEY_FRAME_RATE, encoder->frame_rate);
 		
-		if(encoder->hardware[0] == 'm' && encoder->hardware[1] == 't'){
+		if(encoder->hardware[0] == 'm' && encoder->hardware[1] == 't'){//mtk cpu输入为I420，其余cpu为NV12
 			AMediaFormat_setInt32(mediaFormat, AMEDIAFORMAT_KEY_COLOR_FORMAT, 19);//COLOR_FormatYUV420Planar
 		}
 		else{
 			AMediaFormat_setInt32(mediaFormat, AMEDIAFORMAT_KEY_COLOR_FORMAT, 21);//COLOR_FormatYUV420SemiPlanar
 		}
 		
-		AMediaFormat_setInt32(mediaFormat, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, 1);//1s
+		AMediaFormat_setInt32(mediaFormat, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, 1);//GOP 1s
 		if(!strcmp("video/avc",encoder->MIMETYPE_VIDEO_AVC)){
 			encoder->profile = 0x08;//AVCProfileHigh
 			
@@ -236,6 +260,9 @@ int mediacodec_encoder_open(MediaCodecEncoder* encoder) {
 			}
 			return status;
 		}
+		encoder->firstI = 0;
+		encoder->frameIndex = 0;
+		
 		return status;
 	}
 	else{
@@ -322,7 +349,7 @@ int mediacodec_encoder_encode(MediaCodecEncoder* encoder, uint8_t* in, int offse
 			return -2;//ERROR_CODE_OUT_BUF_NULL
 		}
 
-		ssize_t inputBufferIndex = AMediaCodec_dequeueInputBuffer(encoder->codec, encoder->TIME_OUT);
+		ssize_t inputBufferIndex = AMediaCodec_dequeueInputBuffer(encoder->codec, -1);
 		size_t inputBufferSize = 0;
 
 		if (encoder->DEBUG) {
@@ -370,17 +397,12 @@ int mediacodec_encoder_encode(MediaCodecEncoder* encoder, uint8_t* in, int offse
 		}
 
 		AMediaCodecBufferInfo bufferInfo;
-		ssize_t outputBufferIndex = 0;
+		ssize_t outputBufferIndex = outputBufferIndex = AMediaCodec_dequeueOutputBuffer(encoder->codec, &bufferInfo, encoder->TIME_OUT);
 		size_t outputBufferSize = 0;
-		
-		while (outputBufferIndex != AMEDIACODEC_INFO_TRY_AGAIN_LATER) {
-			outputBufferIndex = AMediaCodec_dequeueOutputBuffer(encoder->codec, &bufferInfo, encoder->TIME_OUT);
-
-			if (encoder->DEBUG) {
-				MediaCodec_LOGI("outputBufferIndex : %d",outputBufferIndex);
-			}
-			
-			
+		if (encoder->DEBUG) {
+			MediaCodec_LOGI("outputBufferIndex : %d",outputBufferIndex);
+		}
+		if(outputBufferIndex != AMEDIACODEC_INFO_TRY_AGAIN_LATER) {
 			if(outputBufferIndex <= -20000){
 				if (encoder->DEBUG) {
 					MediaCodec_LOGE("AMEDIA_DRM_ERROR_BASE");
@@ -398,7 +420,6 @@ int mediacodec_encoder_encode(MediaCodecEncoder* encoder, uint8_t* in, int offse
 
 			if (outputBufferIndex == AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED) {
 				// outputBuffers = codec.getOutputBuffers();
-				continue;
 			} 
 			else if (outputBufferIndex == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
 				/**
@@ -428,25 +449,22 @@ int mediacodec_encoder_encode(MediaCodecEncoder* encoder, uint8_t* in, int offse
 				}
 			} 
 			else if (outputBufferIndex >= 0) {
+				if (encoder->DEBUG) {
+					MediaCodec_LOGI("bufferInfo.size=%d bufferInfo.offset=%d", bufferInfo.size, bufferInfo.offset);
+				}
 				uint8_t* outputBuffer = AMediaCodec_getOutputBuffer(encoder->codec, outputBufferIndex, &outputBufferSize);
 				if(outputBuffer){
-					if (encoder->DEBUG) {
-						MediaCodec_LOGI("bufferInfo : %d",bufferInfo.size);
-					}
-					
 					if(!strcmp("video/avc",encoder->MIMETYPE_VIDEO_AVC)){
 						if (encoder->sps == NULL || encoder->pps == NULL) {//pps sps只有开始时第一个帧里有，保存起来后面用
 							offset = 0;
-
+							
 							while (offset < bufferInfo.size && (encoder->sps == NULL || encoder->pps == NULL)) {
-								int count = 0;
-
 								while (outputBuffer[offset] == 0) {
 									offset++;
 								}
 
 								offset++;
-								count = mediacodec_encoder_ffAvcFindStartcode(outputBuffer, offset, bufferInfo.size);
+								int count = mediacodec_encoder_ffAvcFindStartcode(outputBuffer, offset, bufferInfo.size);
 
 								int naluLength = count - offset;
 								int type = outputBuffer[offset] & 0x1F;
@@ -473,8 +491,6 @@ int mediacodec_encoder_encode(MediaCodecEncoder* encoder, uint8_t* in, int offse
 							if (!encoder->firstI) {
 								offset = 0;
 								while (offset < bufferInfo.size && !encoder->firstI) {
-									int count = 0;
-
 									while (outputBuffer[offset] == 0) {
 										offset++;
 
@@ -488,7 +504,7 @@ int mediacodec_encoder_encode(MediaCodecEncoder* encoder, uint8_t* in, int offse
 									}
 
 									offset++;
-									count = mediacodec_encoder_ffAvcFindStartcode(outputBuffer, offset, bufferInfo.size);
+									int count = mediacodec_encoder_ffAvcFindStartcode(outputBuffer, offset, bufferInfo.size);
 
 									if (offset >= bufferInfo.size) {
 										break;
@@ -539,7 +555,6 @@ int mediacodec_encoder_encode(MediaCodecEncoder* encoder, uint8_t* in, int offse
 				AMediaCodec_releaseOutputBuffer(encoder->codec, outputBufferIndex, 0);
 			}
 		}
-
 		return pos;
 	}
 	else{

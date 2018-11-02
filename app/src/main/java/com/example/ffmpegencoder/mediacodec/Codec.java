@@ -43,6 +43,11 @@ public interface Codec {
 	public void close();
 
 	/**
+	 * 刷新解码器
+	 */
+	public void flush();
+
+	/**
 	 * 配置解码器
 	 * @param key 关键字
 	 * @param value 值

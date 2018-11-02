@@ -5,8 +5,8 @@
 #include <jni.h>
 #include <android/log.h>
 #include <sys/system_properties.h>
-#define MediaCodec_LOGI(...) __android_log_print(ANDROID_LOG_INFO , "MediaCodecDecoder", __VA_ARGS__)
-#define MediaCodec_LOGE(...) __android_log_print(ANDROID_LOG_ERROR , "MediaCodecDecoder", __VA_ARGS__)
+#define MediaCodec_LOGI(...) __android_log_print(ANDROID_LOG_INFO , "MediaCodecNative", __VA_ARGS__)
+#define MediaCodec_LOGE(...) __android_log_print(ANDROID_LOG_ERROR , "MediaCodecNative", __VA_ARGS__)
 
 typedef enum YUV_PIXEL_FORMAT{
 	I420,
@@ -48,6 +48,7 @@ typedef struct MediaCodecEncoder{
 
 MediaCodecEncoder* mediacodec_encoder_alloc(int isDebug, int width, int height, int frame_rate, int bit_rate, int timeout, YUV_PIXEL_FORMAT yuv_pixel_format);
 int mediacodec_encoder_free(MediaCodecEncoder* encoder);
+int mediacodec_encoder_flush(MediaCodecEncoder* encoder);
 
 int mediacodec_encoder_open(MediaCodecEncoder* encoder);
 int mediacodec_encoder_close(MediaCodecEncoder* encoder);
@@ -91,6 +92,7 @@ MediaCodecDecoder* mediacodec_decoder_alloc1(int isDebug, int timeout, YUV_PIXEL
 MediaCodecDecoder* mediacodec_decoder_alloc2(int isDebug);
 MediaCodecDecoder* mediacodec_decoder_alloc3();
 int mediacodec_decoder_free(MediaCodecDecoder* decoder);
+int mediacodec_decoder_flush(MediaCodecDecoder* decoder);
 
 int mediacodec_decoder_open(MediaCodecDecoder* decoder);
 int mediacodec_decoder_close(MediaCodecDecoder* decoder);

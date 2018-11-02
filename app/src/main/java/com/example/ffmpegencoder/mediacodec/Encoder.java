@@ -7,16 +7,6 @@ package com.example.ffmpegencoder.mediacodec;
  *
  */
 public interface Encoder extends Codec {
-
-	/**
-	 * 打开编码器
-	 */
-	public void open();
-
-	/**
-	 * 关闭编码器
-	 */
-	public void close();
 	
 	/**
 	 * 编码方法

@@ -2,6 +2,7 @@ package com.example.ffmpegencoder.mediacodec;
 
 import android.annotation.SuppressLint;
 import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.os.Build;
 import android.util.Log;
@@ -30,20 +31,7 @@ public class HH264Decoder extends H264Decoder {
 	/**
 	 * 解码缓存获得超时时间
 	 */
-	public static final long TIME_OUT = 0;
-
-	/**
-	 * A key describing the color format of the content in a video format.
-	 * Constants are declared in
-	 * {@link android.media.MediaCodecInfo.CodecCapabilities}.
-	 */
-	public static final String KEY_COLOR_FORMAT = "color-format";
-
-	/**
-	 * A key describing the mime type of the MediaFormat. The associated value
-	 * is a string.
-	 */
-	public static final String KEY_MIME = "mime";
+	public static final long TIME_OUT = 1000;
 
 	/**
 	 * MediaCodec接口
@@ -73,10 +61,8 @@ public class HH264Decoder extends H264Decoder {
 	 */
 	private byte[] outData;
 
-	/**
-	 * 输出YUV缓存数据
-	 */
-	private ByteBuffer[] outputBuffers;
+
+	private MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
 
 	// private FileOutputStream outfile;
 
@@ -98,11 +84,27 @@ public class HH264Decoder extends H264Decoder {
 	}
 
 	/**
+	 * {@link Decoder#flush()}
+	 */
+	@Override
+	public void flush() {
+		if(codec != null) {
+			if (DEBUG) {
+				Log.i(TAG, "flush");
+			}
+			codec.flush();
+		}
+	}
+
+	/**
 	 * {@link Decoder#open()}
 	 */
 	@SuppressWarnings("deprecation")
 	@Override
 	public void open() {
+		if(codec != null){
+			close();
+		}
 		if (DEBUG) {
 			Log.i(TAG, "open");
 		}
@@ -113,7 +115,6 @@ public class HH264Decoder extends H264Decoder {
 
 			codec.configure(mediaFormat, null, null, 0);
 			codec.start();
-			outputBuffers = codec.getOutputBuffers();
 		} catch (Exception e) {
 			throw new RuntimeException(e);
 		}
@@ -124,23 +125,28 @@ public class HH264Decoder extends H264Decoder {
 	 */
 	@Override
 	public void close() {
-		if (DEBUG) {
-			Log.i(TAG, "close");
-		}
+		if(codec != null) {
+			if (DEBUG) {
+				Log.i(TAG, "close");
+			}
+			try {
+				codec.stop();
+			}catch (Exception e) {
+				e.printStackTrace();
+			}finally {
+				codec.release();
+				codec = null;
+			}
 
-		codec.stop();
-		codec.release();
-		codec = null;
-		outputBuffers = null;
-
-		// if(outfile != null){
+			// if(outfile != null){
 			// try {
-				// outfile.close();
+			// outfile.close();
 			// } catch (IOException e) {
-				// e.printStackTrace();
+			// e.printStackTrace();
 			// }
 			// outfile = null;
-		// }
+			// }
+		}
 	}
 
 	/**
@@ -149,71 +155,59 @@ public class HH264Decoder extends H264Decoder {
 	@SuppressWarnings("deprecation")
 	@Override
 	public int decode(byte[] in, int offset, byte[] out, int length) {
-		if (DEBUG) {
-			Log.i(TAG, "decode");
-		}
+		if(codec != null) {
+			if (DEBUG) {
+				Log.i(TAG, "decode");
+			}
 
-		errorCode = ERROR_CODE_NO_ERROR;
-		
-		if (out == null) {
-			errorCode = ERROR_CODE_OUT_BUF_NULL;
-			return 0;
-		}
+			int size = 0;
+			errorCode = ERROR_CODE_NO_ERROR;
 
-		if (out.length < width * height * 3 / 2) {
-			errorCode = ERROR_CODE_OUT_BUF_FLOW;
-			return 0;
-		}
+			if (out == null) {
+				errorCode = ERROR_CODE_OUT_BUF_NULL;
+				return 0;
+			}
 
-		int size = 0;
-
-		ByteBuffer[] inputBuffers = codec.getInputBuffers();
-		int inputBufferIndex = codec.dequeueInputBuffer(TIME_OUT);
-		
-		if (inputBufferIndex >= 0) {
-			ByteBuffer inputBuffer = inputBuffers[inputBufferIndex];
-			inputBuffer.clear();
-			inputBuffer.put(in, offset, length);
-			codec.queueInputBuffer(inputBufferIndex, 0, length, 0, 0);
-		} else {
-			if(DEBUG) {
+			int inputBufferIndex = codec.dequeueInputBuffer(-1);
+			if (DEBUG) {
 				Log.i(TAG, "inputBufferIndex : " + inputBufferIndex);
 			}
-			
-			errorCode = ERROR_CODE_INPUT_BUFFER_FAILURE;
-		}
 
-		MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
+			if (inputBufferIndex >= 0) {
+				ByteBuffer inputBuffer = codec.getInputBuffer(inputBufferIndex);
+				inputBuffer.clear();
+				inputBuffer.put(in, offset, length);
+				codec.queueInputBuffer(inputBufferIndex, 0, length, 0, 0);
+			} else {
+				errorCode = ERROR_CODE_INPUT_BUFFER_FAILURE;
+			}
 
-		int outputBufferIndex = 0;
-		while (outputBufferIndex != MediaCodec.INFO_TRY_AGAIN_LATER) {
-			outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, TIME_OUT);
-
+			int outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, TIME_OUT);
+			int expectBufferSize = 0;
 			if (DEBUG) {
 				Log.i(TAG, "outputBufferIndex : " + outputBufferIndex);
 			}
 
-			if (outputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-				outputBuffers = codec.getOutputBuffers();
-			} else if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-				/**
-				 * <code>
-				 *	mediaFormat : {
-				 *		image-data=java.nio.HeapByteBuffer[pos=0 lim=104 cap=104],
-				 *		mime=video/raw,
-				 *		crop-top=0,
-				 *		crop-right=703,
-				 *		slice-height=576,
-				 *		color-format=21,
-				 *		height=576, width=704,
-				 *		crop-bottom=575, crop-left=0,
-				 *		hdr-static-info=java.nio.HeapByteBuffer[pos=0 lim=25 cap=25],
-				 *		stride=704
-				 *	}
+			if (outputBufferIndex != MediaCodec.INFO_TRY_AGAIN_LATER) {
+				if (outputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
+
+				} else if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+					/**
+					 * <code>
+					 *	mediaFormat : {
+					 *		image-data=java.nio.HeapByteBuffer[pos=0 lim=104 cap=104],
+					 *		mime=video/raw,
+					 *		crop-top=0,
+					 *		crop-right=703,
+					 *		slice-height=576,
+					 *		color-format=21,
+					 *		height=576, width=704,
+					 *		crop-bottom=575, crop-left=0,
+					 *		hdr-static-info=java.nio.HeapByteBuffer[pos=0 lim=25 cap=25],
+					 *		stride=704
+					 *        }
 				 *	</code>
 				 */
-				outputBuffers = codec.getOutputBuffers();
-
 				MediaFormat mediaFormat = codec.getOutputFormat();
 
 				try {
@@ -236,7 +230,8 @@ public class HH264Decoder extends H264Decoder {
 					crop_top = mediaFormat.getInteger("crop-top");
 					crop_bottom = mediaFormat.getInteger("crop-bottom");
 				}catch (Exception e) {
-					Log.e(TAG, e.getMessage(), e);
+					Log.
+							e(TAG, e.getMessage(), e);
 					crop_left = 0;
 					crop_right = width - 1;
 					crop_top = 0;
@@ -246,8 +241,7 @@ public class HH264Decoder extends H264Decoder {
 				try {
 					if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
 						stride = mediaFormat.getInteger(MediaFormat.KEY_STRIDE);
-					}
-					else{
+					} else {
 						stride = width;
 					}
 				} catch (Exception e) {
@@ -255,116 +249,120 @@ public class HH264Decoder extends H264Decoder {
 					stride = 0;
 				}
 
-				try {
-					if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-						sliceHeight = mediaFormat.getInteger(MediaFormat.KEY_SLICE_HEIGHT);
+					try {
+						if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+							sliceHeight = mediaFormat.getInteger(MediaFormat.KEY_SLICE_HEIGHT);
+						} else {
+							sliceHeight = height;
+						}
+					} catch (Exception e) {
+						Log.e(TAG, e.getMessage(), e);
+						sliceHeight = 0;
 					}
-					else{
+
+					try {
+						mime = mediaFormat.getString(MediaFormat.KEY_MIME);
+					} catch (Exception e) {
+						Log.e(TAG, e.getMessage(), e);
+						mime = null;
+					}
+
+					try {
+						colorFormat = mediaFormat.getInteger(MediaFormat.KEY_COLOR_FORMAT);
+						Log.i(TAG, "output colorFormat:" + colorFormat);
+					} catch (Exception e) {
+						Log.e(TAG, e.getMessage(), e);
+						colorFormat = -1;
+					}
+
+					if (DEBUG) {
+						Log.i(TAG, "mediaFormat : " + mediaFormat.toString());
+					}
+
+					if (stride == 0 || stride < width) {
+						stride = width;
+					}
+
+					if (sliceHeight == 0 || sliceHeight < height) {
 						sliceHeight = height;
 					}
-				} catch (Exception e) {
-					Log.e(TAG, e.getMessage(), e);
-					sliceHeight = 0;
-				}
 
-				try {
-					mime = mediaFormat.getString(MediaFormat.KEY_MIME);
-				} catch (Exception e) {
-					Log.e(TAG, e.getMessage(), e);
-					mime = null;
-				}
-
-				try {
-
-					colorFormat = mediaFormat.getInteger(MediaFormat.KEY_COLOR_FORMAT);
-					Log.i(TAG, "output colorFormat:"+colorFormat);
-				} catch (Exception e) {
-					Log.e(TAG, e.getMessage(), e);
-					colorFormat = -1;
-				}
-
-				if (DEBUG) {
-					Log.i(TAG, "mediaFormat : " + mediaFormat.toString());
-				}
-
-				if (stride == 0 || stride < width) {
-					stride = width;
-				}
-
-				if (sliceHeight == 0 || sliceHeight < height) {
-					sliceHeight = height;
-				}
-
-				if (outData == null || outData.length < stride * sliceHeight * 3 / 2) {
-					outData = new byte[stride * sliceHeight * 3 / 2];
-				}
-			} else if (outputBufferIndex >= 0) {
-				if (outData == null || outData.length != stride * sliceHeight * 3 / 2) {
-					outData = new byte[stride * sliceHeight * 3 / 2];
-				}
-				Log.i(TAG, "outData.length="+outData.length+" stride*sliceHeight*3/2="+stride * sliceHeight * 3 / 2+" bufferInfo.size="+bufferInfo.size);
-				Log.i(TAG,"bufferInfo.offset="+bufferInfo.offset);
-
-				ByteBuffer outputBuffer = outputBuffers[outputBufferIndex];
-				outputBuffer.get(outData, 0, outData.length);
-
-				if (width == stride && height == sliceHeight) {
-					System.arraycopy(outData, 0, out, 0, outData.length);
-				} else {
-					int offset0 = 0;
-					int offset1 = 0;
-
-					for (int i = 0; i < sliceHeight; i++) {
-						System.arraycopy(outData, offset0, out, offset1, width);
-
-						offset0 += stride;
-						offset1 += width;
+					expectBufferSize = stride * sliceHeight * 3 / 2;
+					if (outData == null || outData.length < expectBufferSize) {
+						outData = new byte[expectBufferSize];
+					}
+				} else if (outputBufferIndex >= 0) {
+					expectBufferSize = stride * sliceHeight * 3 / 2;
+					if (outData == null || outData.length < expectBufferSize) {
+						outData = new byte[expectBufferSize];
+					}
+					if (DEBUG) {
+						Log.i(TAG, "expectBufferSize=" + expectBufferSize + " bufferInfo.size=" + bufferInfo.size + " bufferInfo.offset=" + bufferInfo.size);
 					}
 
-					for (int j = 0; j < sliceHeight / 2; j++) {
-						System.arraycopy(outData, offset0, out, offset1, width / 2);
+					ByteBuffer outputBuffer = codec.getOutputBuffer(outputBufferIndex);
+					if (bufferInfo.size >= expectBufferSize) {
+						outputBuffer.position(bufferInfo.offset);
+						outputBuffer.limit(bufferInfo.offset + bufferInfo.size);
+						outputBuffer.get(outData, 0, bufferInfo.size);
 
-						offset0 += stride / 2;
-						offset1 += (width / 2);
+						if (width == stride && height == sliceHeight) {
+							System.arraycopy(outData, 0, out, 0, outData.length);
+						} else {
+							int offset0 = 0;
+							int offset1 = 0;
+							for (int i = 0; i < sliceHeight; i++) {
+								System.arraycopy(outData, offset0, out, offset1, width);
+								offset0 += stride;
+								offset1 += width;
+							}
+							for (int j = 0; j < sliceHeight / 2; j++) {
+								System.arraycopy(outData, offset0, out, offset1, width / 2);
+								offset0 += stride / 2;
+								offset1 += (width / 2);
+							}
+						}
 
+						if (crop_right - crop_left + 1 < width || crop_bottom - crop_top + 1 < height) {
+							size = (crop_right - crop_left + 1) * (crop_bottom - crop_top + 1) * 3 / 2;
+							if (colorFormat == MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar) {
+								H264Utils.CropYUV420Planar(out, width, height, outData, crop_left, crop_right, crop_top, crop_bottom);
+								System.arraycopy(outData, 0, out, 0, size);
+							} else {
+								H264Utils.CropYUV420SemiPlanar(out, width, height, outData, crop_left, crop_right, crop_top, crop_bottom);
+								H264Utils.NV12toYUV420Planar(outData, 0, out, crop_right - crop_left + 1, crop_bottom - crop_top + 1);
+							}
+						} else {
+							size = width * height * 3 / 2;
+							if (colorFormat == MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar) {
+//								System.arraycopy(out, 0, outData, 0, size);
+//								System.arraycopy(outData, 0, out, 0, size);
+							} else {
+								System.arraycopy(out, 0, outData, 0, size);
+								H264Utils.NV12toYUV420Planar(outData, 0, out, crop_right - crop_left + 1, crop_bottom - crop_top + 1);
+							}
+						}
+
+//						if(outfile == null){
+//							try {
+//								outfile = new FileOutputStream("sdcard/out_"+(crop_right - crop_left + 1)+"x"+(crop_bottom - crop_top + 1)+".yuv");
+//							} catch (FileNotFoundException e) {
+//								e.printStackTrace();
+//							}
+//						} else{
+//							try {
+//								outfile.write(out,0,size);
+//							} catch (IOException e) {
+//								e.printStackTrace();
+//							}
+//						}
 					}
-				}
-
-				codec.releaseOutputBuffer(outputBufferIndex, false);
-
-				byte[] yuv_crop;
-				if(crop_right - crop_left + 1 < width || crop_bottom - crop_top + 1 < height) {
-					size = (crop_right - crop_left + 1) * (crop_bottom - crop_top + 1) * 3 / 2;
-					yuv_crop = new byte[size];
-					H264Utils.CropYUV420SemiPlanar(out, width, height, yuv_crop, crop_left, crop_right, crop_top, crop_bottom);
-				}
-				else{
-					size = width * height * 3 / 2;
-					yuv_crop = new byte[size];
-					System.arraycopy(out, 0, yuv_crop, 0, size);
-				}
-
-				if(size > 0){
-					H264Utils.NV12toYUV420Planar(yuv_crop, 0, out, crop_right - crop_left + 1, crop_bottom - crop_top + 1);
-					// if(outfile == null){
-						// try {
-							// outfile = new FileOutputStream("sdcard/out_"+(crop_right - crop_left + 1)+"x"+(crop_bottom - crop_top + 1)+".yuv");
-						// } catch (FileNotFoundException e) {
-							// e.printStackTrace();
-						// }
-					// }
-					// else{
-						// try {
-							// outfile.write(out,0,size);
-						// } catch (IOException e) {
-							// e.printStackTrace();
-						// }
-					// }
+					codec.releaseOutputBuffer(outputBufferIndex, false);
 				}
 			}
+			return size;
 		}
-
-		return size;
+		return 0;
 	}
 
 	/**
@@ -373,44 +371,35 @@ public class HH264Decoder extends H264Decoder {
 	@SuppressWarnings("deprecation")
 	@Override
 	public void decodeAndRender(byte[] in, int offset, int length) {
-		if (DEBUG) {
-			Log.i(TAG, "decodeAndRender");
-		}
+		if(codec != null) {
+			if (DEBUG) {
+				Log.i(TAG, "decodeAndRender");
+			}
 
-		ByteBuffer[] inputBuffers = codec.getInputBuffers();
-		int inputBufferIndex = codec.dequeueInputBuffer(TIME_OUT);
-		if (inputBufferIndex >= 0) {
-			ByteBuffer inputBuffer = inputBuffers[inputBufferIndex];
-			inputBuffer.clear();
-			inputBuffer.put(in, offset, length);
-			codec.queueInputBuffer(inputBufferIndex, 0, length, 0, 0);
-		}
+			int inputBufferIndex = codec.dequeueInputBuffer(-1);
+			if (inputBufferIndex >= 0) {
+				ByteBuffer inputBuffer = codec.getInputBuffer(inputBufferIndex);
+				inputBuffer.clear();
+				inputBuffer.put(in, offset, length);
+				codec.queueInputBuffer(inputBufferIndex, 0, length, 0, 0);
+			}
 
-		MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
-		int outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, 0);
-		// if (outputBufferIndex >= 0) {
-		// codec.releaseOutputBuffer(outputBufferIndex, true);
-		// }
-
-		while (outputBufferIndex >= 0) {
-			codec.releaseOutputBuffer(outputBufferIndex, true);
-			outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, 0);
+			MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
+			int outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, 0);
+			if (outputBufferIndex >= 0) {
+				codec.releaseOutputBuffer(outputBufferIndex, true);
+			}
 		}
 	}
 
-	/**
-	 * (non-Javadoc)
-	 * 
-	 * @see com.hytera.media.codec.H264Decoder#getConfig(String)
-	 */
+
 	@Override
 	public Object getConfig(String key) {
-		if (KEY_COLOR_FORMAT.equals(key)) {
+		if (MediaFormat.KEY_COLOR_FORMAT.equals(key)) {
 			return colorFormat;
-		} else if (KEY_MIME.equals(key)) {
+		} else if (MediaFormat.KEY_MIME.equals(key)) {
 			return mime;
 		}
-
 		return super.getConfig(key);
 	}
 	

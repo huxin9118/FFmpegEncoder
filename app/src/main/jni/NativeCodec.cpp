@@ -1,10 +1,3 @@
-/*
- * NativeCodec.cpp
- *
- *  Created on: 2016年12月11日
- *      Author: zsp-asus
- */
-
 #include "mediacodec/NativeCodec.h"
 #include <dlfcn.h>
 #include <pthread.h>

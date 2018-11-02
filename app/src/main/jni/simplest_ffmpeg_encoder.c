@@ -12,12 +12,16 @@
 #ifdef ANDROID
 #include <jni.h>
 #include <android/log.h>
-#define LOGE(format, ...)  __android_log_print(ANDROID_LOG_ERROR, "(>_<)", format, ##__VA_ARGS__)
-#define LOGI(format, ...)  __android_log_print(ANDROID_LOG_INFO,  "(^_^)", format, ##__VA_ARGS__)
+#define LOGE(format, ...)  __android_log_print(ANDROID_LOG_ERROR, "ffmpegencoder", format, ##__VA_ARGS__)
+#define LOGI(format, ...)  __android_log_print(ANDROID_LOG_INFO,  "ffmpegencoder", format, ##__VA_ARGS__)
 #else
 #define LOGE(format, ...)  printf("(>_<) " format "\n", ##__VA_ARGS__)
 #define LOGI(format, ...)  printf("(^_^) " format "\n", ##__VA_ARGS__)
 #endif
+
+#define MEDIACODEC_ENC_BUFFER_ARRAY_SIZE  1024*1024*1
+#define MEDIACODEC_ENC_YUV_ARRAY_SIZE  2000*1200*3/2
+#define MEDIACODEC_ANDROID  0
 
 int encode_cancel = 0;
 
@@ -27,7 +31,44 @@ JNIEXPORT void JNICALL Java_com_example_ffmpegencoder_activity_MainActivity_enco
     encode_cancel = 1;
 }
 
-void mediacodec_encode_video(MediaCodecEncoder* encoder, AVFrame *pFrame, AVPacket *packet, int *got_picture);
+typedef struct MediacodecContext{
+	jbyteArray enc_buffer_array;
+    jbyteArray enc_yuv_array;
+
+	jclass class_Codec;
+	jclass class_HH264Encoder;
+	jclass class_H264Utils;
+	jclass class_Integer;
+	jclass class_MediaFormat;
+	jclass class_CodecCapabilities;
+
+	jmethodID methodID_HH264Encoder_constructor;
+	jmethodID methodID_HH264Encoder_config;
+	jmethodID methodID_HH264Encoder_getConfig;
+	jmethodID methodID_HH264Encoder_open;
+	jmethodID methodID_HH264Encoder_encode;
+	jmethodID methodID_HH264Encoder_getErrorCode;
+	jmethodID methodID_HH264Encoder_close;
+	jmethodID methodID_H264Utils_ffAvcFindStartcode;
+	jmethodID methodID_Integer_intValue;
+	jfieldID fieldID_Codec_ERROR_CODE_INPUT_BUFFER_FAILURE;
+	jfieldID fieldID_MediaFormat_KEY_WIDTH;
+	jfieldID fieldID_MediaFormat_KEY_HEIGHT;
+	jfieldID fieldID_MediaFormat_KEY_COLOR_FORMAT;
+	jfieldID fieldID_CodecCapabilities_COLOR_FormatYUV420Planar;
+	jfieldID fieldID_CodecCapabilities_COLOR_FormatYUV420SemiPlanar;
+
+	jint ERROR_CODE_INPUT_BUFFER_FAILURE;
+	jobject KEY_WIDTH;
+	jobject KEY_HEIGHT;
+	jobject KEY_COLOR_FORMAT;
+	jint COLOR_FormatYUV420Planar;
+	jint COLOR_FormatYUV420SemiPlanar;
+
+	jobject object_encoder;
+}MediacodecContext;
+void mediacodec_encode_video(JNIEnv* env, MediacodecContext* mediacodecContext, AVFrame *pFrame, AVPacket *packet, int *got_picture);
+void mediacodec_encode_video2(MediaCodecEncoder* encoder, AVFrame *pFrame, AVPacket *packet, int *got_picture);
 
 JNIEXPORT jint JNICALL Java_com_example_ffmpegencoder_activity_MainActivity_encode
 		(JNIEnv *env, jobject obj, jstring input_jstr, jstring output_jstr, jint width, jint height, 
@@ -52,7 +93,6 @@ JNIEXPORT jint JNICALL Java_com_example_ffmpegencoder_activity_MainActivity_enco
     int picture_size;
     int y_size;
     int framecnt=0;
-    struct SwsContext *img_convert_ctx;
 
     char input_str[256]={0};
     char output_str[256]={0};
@@ -151,8 +191,49 @@ JNIEXPORT jint JNICALL Java_com_example_ffmpegencoder_activity_MainActivity_enco
 		yuv_pixel_format = NV21;
 	}
 
-	MediaCodecEncoder* mediacodec_encoder = mediacodec_encoder_alloc(1,width,height,framerate,bitrate*1000,300,yuv_pixel_format);
+//------------Mediacodec init----------------
+#if MEDIACODEC_ANDROID
+	MediacodecContext mediacodecContext;
+
+	mediacodecContext.enc_yuv_array = (*env)->NewByteArray(env, MEDIACODEC_ENC_YUV_ARRAY_SIZE);
+	mediacodecContext.enc_buffer_array = (*env)->NewByteArray(env, MEDIACODEC_ENC_BUFFER_ARRAY_SIZE);
+
+	mediacodecContext.class_Codec = (*env)->FindClass(env, "com/example/ffmpegencoder/mediacodec/Codec");
+	mediacodecContext.class_HH264Encoder = (*env)->FindClass(env, "com/example/ffmpegencoder/mediacodec/HH264Encoder");
+	mediacodecContext.class_H264Utils = (*env)->FindClass(env, "com/example/ffmpegencoder/mediacodec/H264Utils");
+	mediacodecContext.class_Integer = (*env)->FindClass(env, "java/lang/Integer");
+	mediacodecContext.class_MediaFormat = (*env)->FindClass(env,"android/media/MediaFormat");
+	mediacodecContext.class_CodecCapabilities = (*env)->FindClass(env,"android/media/MediaCodecInfo$CodecCapabilities");
+
+	mediacodecContext.methodID_HH264Encoder_constructor = (*env)->GetMethodID(env,mediacodecContext.class_HH264Encoder,"<init>","(IIII)V");
+	mediacodecContext.methodID_HH264Encoder_config = (*env)->GetMethodID(env,mediacodecContext.class_HH264Encoder,"config","(Ljava/lang/String;Ljava/lang/Object;)V");
+	mediacodecContext.methodID_HH264Encoder_getConfig = (*env)->GetMethodID(env,mediacodecContext.class_HH264Encoder,"getConfig","(Ljava/lang/String;)Ljava/lang/Object;");
+	mediacodecContext.methodID_HH264Encoder_open = (*env)->GetMethodID(env,mediacodecContext.class_HH264Encoder,"open","()V");
+	mediacodecContext.methodID_HH264Encoder_encode = (*env)->GetMethodID(env,mediacodecContext.class_HH264Encoder,"encode","([BI[BI)I");
+	mediacodecContext.methodID_HH264Encoder_getErrorCode = (*env)->GetMethodID(env,mediacodecContext.class_HH264Encoder,"getErrorCode","()I");
+	mediacodecContext.methodID_HH264Encoder_close = (*env)->GetMethodID(env,mediacodecContext.class_HH264Encoder,"close","()V");
+	mediacodecContext.methodID_H264Utils_ffAvcFindStartcode = (*env)->GetStaticMethodID(env,mediacodecContext.class_H264Utils,"ffAvcFindStartcode","([BII)I");
+	mediacodecContext.methodID_Integer_intValue = (*env)->GetMethodID(env,mediacodecContext.class_Integer,"intValue","()I");
+	mediacodecContext.fieldID_Codec_ERROR_CODE_INPUT_BUFFER_FAILURE = (*env)->GetStaticFieldID(env, mediacodecContext.class_Codec, "ERROR_CODE_INPUT_BUFFER_FAILURE", "I");
+	mediacodecContext.fieldID_MediaFormat_KEY_WIDTH = (*env)->GetStaticFieldID(env, mediacodecContext.class_MediaFormat, "KEY_WIDTH", "Ljava/lang/String;");
+	mediacodecContext.fieldID_MediaFormat_KEY_HEIGHT = (*env)->GetStaticFieldID(env, mediacodecContext.class_MediaFormat, "KEY_HEIGHT", "Ljava/lang/String;");
+	mediacodecContext.fieldID_MediaFormat_KEY_COLOR_FORMAT = (*env)->GetStaticFieldID(env, mediacodecContext.class_MediaFormat, "KEY_COLOR_FORMAT", "Ljava/lang/String;");
+	mediacodecContext.fieldID_CodecCapabilities_COLOR_FormatYUV420Planar = (*env)->GetStaticFieldID(env,  mediacodecContext.class_CodecCapabilities, "COLOR_FormatYUV420Planar", "I");
+	mediacodecContext.fieldID_CodecCapabilities_COLOR_FormatYUV420SemiPlanar = (*env)->GetStaticFieldID(env,  mediacodecContext.class_CodecCapabilities, "COLOR_FormatYUV420SemiPlanar", "I");
+
+	mediacodecContext.ERROR_CODE_INPUT_BUFFER_FAILURE = (*env)->GetStaticIntField(env, mediacodecContext.class_Codec, mediacodecContext.fieldID_Codec_ERROR_CODE_INPUT_BUFFER_FAILURE);
+	mediacodecContext.KEY_WIDTH = (*env)->GetStaticObjectField(env, mediacodecContext.class_MediaFormat, mediacodecContext.fieldID_MediaFormat_KEY_WIDTH);
+	mediacodecContext.KEY_HEIGHT = (*env)->GetStaticObjectField(env, mediacodecContext.class_MediaFormat, mediacodecContext.fieldID_MediaFormat_KEY_HEIGHT);
+	mediacodecContext.KEY_COLOR_FORMAT = (*env)->GetStaticObjectField(env, mediacodecContext.class_MediaFormat, mediacodecContext.fieldID_MediaFormat_KEY_COLOR_FORMAT);
+	mediacodecContext.COLOR_FormatYUV420Planar = (*env)->GetStaticIntField(env, mediacodecContext.class_CodecCapabilities, mediacodecContext.fieldID_CodecCapabilities_COLOR_FormatYUV420Planar);
+	mediacodecContext.COLOR_FormatYUV420SemiPlanar = (*env)->GetStaticIntField(env, mediacodecContext.class_CodecCapabilities, mediacodecContext.fieldID_CodecCapabilities_COLOR_FormatYUV420SemiPlanar);
+
+	mediacodecContext.object_encoder = (*env)->NewObject(env, mediacodecContext.class_HH264Encoder, mediacodecContext.methodID_HH264Encoder_constructor,width, height, framerate, bitrate*1000);
+	(*env)->CallVoidMethod(env, mediacodecContext.object_encoder, mediacodecContext.methodID_HH264Encoder_open);
+#else
+	MediaCodecEncoder* mediacodec_encoder = mediacodec_encoder_alloc(1,width,height,framerate,bitrate*1000,1000,yuv_pixel_format);
 	mediacodec_encoder_open(mediacodec_encoder);
+#endif
 
     //Write File Header
     avformat_write_header(pFormatCtx,NULL);
@@ -191,7 +272,11 @@ JNIEXPORT jint JNICALL Java_com_example_ffmpegencoder_activity_MainActivity_enco
 			if(!pkt.data){
 				av_new_packet(&pkt,picture_size);
 			}
-			mediacodec_encode_video(mediacodec_encoder, pFrame, &pkt, &got_picture);
+#if MEDIACODEC_ANDROID
+            mediacodec_encode_video(env, &mediacodecContext, pFrame, &pkt, &got_picture);
+#else
+			mediacodec_encode_video2(mediacodec_encoder, pFrame, &pkt, &got_picture);
+#endif			
 			if (got_picture==1){
 				LOGI("Succeed to encode frame: %5d\tsize:%5d\n",framecnt,pkt.size);
 
@@ -248,10 +333,9 @@ JNIEXPORT jint JNICALL Java_com_example_ffmpegencoder_activity_MainActivity_enco
         LOGI("Encoder Cancel!!!");
         (*env)->CallVoidMethod(env, obj, methodID_setProgressRateEmpty);
     }
-
+	
     //Write file trailer
     av_write_trailer(pFormatCtx);
-
     //Clean
     if (video_st){
         avcodec_close(video_st->codec);
@@ -260,16 +344,60 @@ JNIEXPORT jint JNICALL Java_com_example_ffmpegencoder_activity_MainActivity_enco
     }
     avio_close(pFormatCtx->pb);
     avformat_free_context(pFormatCtx);
-	sws_freeContext(img_convert_ctx);
+
     fclose(fp_yuv);
     encode_cancel = 0;
 	
+#if MEDIACODEC_ANDROID
+	(*env)->DeleteLocalRef(env, mediacodecContext.enc_yuv_array);
+	(*env)->DeleteLocalRef(env, mediacodecContext.enc_buffer_array);
+
+	(*env)->DeleteLocalRef(env, mediacodecContext.class_Codec);
+	(*env)->DeleteLocalRef(env, mediacodecContext.class_HH264Encoder);
+	(*env)->DeleteLocalRef(env, mediacodecContext.class_H264Utils);
+	(*env)->DeleteLocalRef(env, mediacodecContext.class_Integer);
+	(*env)->DeleteLocalRef(env, mediacodecContext.class_MediaFormat);
+	(*env)->DeleteLocalRef(env, mediacodecContext.class_CodecCapabilities);
+
+	(*env)->CallVoidMethod(env, mediacodecContext.object_encoder, mediacodecContext.methodID_HH264Encoder_close);
+	(*env)->DeleteLocalRef(env, mediacodecContext.object_encoder);
+	(*env)->DeleteLocalRef(env, mediacodecContext.KEY_WIDTH);
+	(*env)->DeleteLocalRef(env, mediacodecContext.KEY_HEIGHT);
+	(*env)->DeleteLocalRef(env, mediacodecContext.KEY_COLOR_FORMAT);
+#else
 	mediacodec_encoder_close(mediacodec_encoder);
 	mediacodec_encoder_free(mediacodec_encoder);
+#endif
     return 0;
 }
 
-void mediacodec_encode_video(MediaCodecEncoder* encoder, AVFrame *pFrame, AVPacket *packet, int *got_picture){
+void mediacodec_encode_video(JNIEnv* env, MediacodecContext* mediacodecContext, AVFrame *pFrame, AVPacket *packet, int *got_picture){
+	uint8_t *in,*out;
+	int in_len = pFrame->width * pFrame->height * 3 / 2;
+	int out_len = 0;
+	in = pFrame->data[0];
+	out = packet->data;
+	
+	int jerror_code;
+	
+	(*env)->SetByteArrayRegion(env, mediacodecContext->enc_yuv_array, 0, in_len, (jbyte*)in);
+	
+	out_len = (*env)->CallIntMethod(env,mediacodecContext->object_encoder,mediacodecContext->methodID_HH264Encoder_encode,mediacodecContext->enc_yuv_array,0,mediacodecContext->enc_buffer_array,in_len);
+	
+	LOGI("out_len:%6d", out_len);
+	if(out_len > 0){	
+		(*env)->GetByteArrayRegion(env, mediacodecContext->enc_buffer_array, 0, out_len, (jbyte*)out);
+	
+		*got_picture = 1;
+		packet->size = out_len;
+	}
+	else{
+		*got_picture = 0;
+		packet->size = 0;
+	}
+}
+
+void mediacodec_encode_video2(MediaCodecEncoder* encoder, AVFrame *pFrame, AVPacket *packet, int *got_picture){
 	uint8_t *in,*out;
 	int in_len = pFrame->width * pFrame->height * 3 / 2;
 	int out_len = 0;
@@ -279,8 +407,7 @@ void mediacodec_encode_video(MediaCodecEncoder* encoder, AVFrame *pFrame, AVPack
 	int jerror_code;
 	
 	out_len = mediacodec_encoder_encode(encoder, in, 0, out, in_len, &jerror_code);
-	LOGI("jout_len:%6d", out_len);
-	usleep(30000);
+	LOGI("out_len:%6d", out_len);
 	if(out_len > 0){	
 		*got_picture = 1;
 		packet->size = out_len;
